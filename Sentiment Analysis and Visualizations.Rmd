@@ -1,0 +1,345 @@
+---
+title: "EDA and Sentiment Analysis"
+author: "Ruthvik Ravindra"
+date: "3/28/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Include required libraries
+
+```{r}
+library(readr)
+library(ggplot2)
+library(dplyr)
+library(dbplyr)
+library(tidyverse)
+library(e1071)
+library(caret)
+library(tidytext)
+library(tokenizers)
+library(gutenbergr)
+library(tm)
+```
+
+
+# Down Market Analysis
+
+```{r}
+speech <- read_lines("down_market.txt")
+
+tspeech <- tibble(line=1:length(speech),text = speech)
+
+```
+
+## Find Most Used Words
+```{r}
+tspeech %>%
+  unnest_tokens(word,text)%>%
+anti_join(stop_words, by="word") %>%
+count(word, sort=TRUE) %>%
+filter(n > 300) %>%
+mutate(word = reorder(word, n)) %>%
+top_n(10)%>%
+ggplot(aes(x=word, y=n,fill="red")) +
+geom_col(show.legend = FALSE) +
+coord_flip()
+```
+
+## Find Most Used Bigrams
+
+```{r}
+speech_bigrams <- unnest_tokens(tspeech, bigram, text,token = "ngrams", n=2)
+speech_bigrams
+
+speech_bigrams <- speech_bigrams %>%
+  separate(bigram, c("word1","word2"), sep=" ")
+
+speech_stop <- tibble(word = c("applause"))
+
+
+
+speech_bigrams <- speech_bigrams %>%
+  filter(!word1 %in% stop_words$word)%>%
+  filter(!word2 %in% stop_words$word) %>%
+  filter(!word1 %in% speech_stop$word)%>%
+  filter(!word2 %in% speech_stop$word) 
+
+speech_negation <- tibble(word = c("never",
+                                   "no",
+                                   "without",
+                                   "not"))
+
+speech_bigrams <- speech_bigrams %>%
+  filter(!word1 %in% speech_negation$word)
+
+speech_bigrams %>% 
+  count(word1,word2,sort=TRUE) %>%
+  unite(bigram,c(word1,word2),sep=" ")%>%
+  top_n(15) %>%
+  mutate(word= reorder(bigram,n))%>%
+  ggplot(aes(x=word,y=n)) +
+  geom_col() +
+  ylab("Frequency") +
+  xlab("Words") +
+  ggtitle("Most used words") +
+  coord_flip()
+
+```
+
+## Bigram Connector graph
+```{r}
+library(igraph)
+library(ggraph)
+down_graph <- speech_bigrams %>%
+count(word1, word2, sort=TRUE) %>%
+filter(n > 20) %>%
+graph_from_data_frame()
+down_graph
+
+ggraph(down_graph,
+layout="igraph",
+algorithm="kk") +
+geom_edge_link() +
+geom_node_point() +
+geom_node_text(aes(label = name), vjust = 1, hjust = 1)
+
+```
+
+## Most used negative words
+
+```{r}
+speech_bigrams2 <- unnest_tokens(tspeech,
+                                 bigram, text,
+                                 token = "ngrams", n=2)
+
+speech_bigrams2 <- speech_bigrams2 %>%
+  separate(bigram, c("word1","word2"), sep=" ")
+
+speech_bigrams2 <- speech_bigrams2 %>%
+  filter(word1 %in% speech_negation$word)%>%
+  filter(!word2 %in% stop_words$word) %>%
+  filter(!word2 %in% speech_stop$word)
+
+speech_bigrams2 %>%
+  count(word1, word2, sort = TRUE) %>%
+  ungroup() %>%
+  arrange(desc(n)) %>%
+  mutate(word2 = reorder(word2, n)) %>%
+  group_by(word1) %>%
+  top_n(5)%>%
+  ggplot(aes(word2, n)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~word1, scales="free") +
+  ylab("Frequency") +
+  xlab("Words") +
+  ggtitle("Most used negative words") +
+  coord_flip()
+```
+
+## Sentiment Clustering and Analysis
+
+```{r}
+
+speech_bigrams3 <- unnest_tokens(tspeech,
+                                 bigram, 
+                                 text,
+                                 token = "ngrams", 
+                                 n=2)
+
+speech_bigrams3 <- speech_bigrams3 %>%
+  separate(bigram, c("word1","word2"), sep=" ")
+
+speech_bigrams3 <- speech_bigrams3 %>%
+  filter(!word1 %in% speech_negation$word)%>%
+  filter(!word2 %in% stop_words$word) %>%
+  filter(!word2 %in% speech_stop$word)
+
+loughlex <- get_sentiments("loughran")
+speech_bigrams3 %>%
+  inner_join(loughlex,
+             by= c("word2"="word"))%>%
+  count(sentiment,word2, sort=TRUE)%>%
+  mutate(word = reorder(word2,n))%>%
+  group_by(sentiment)%>%
+  top_n(5)%>%
+  ggplot(aes(x=word, y=n)) +
+  geom_col(show.legend=FALSE) +
+  facet_wrap(~sentiment, scales = "free") +
+  ylab("Frequency") +
+  xlab("Words") +
+  ggtitle("Sentiment Analysis") +
+  coord_flip()
+
+```
+
+# Up Market Analysis
+
+```{r}
+speech <- read_lines("up_market.txt")
+
+tspeech <- tibble(line=1:length(speech),text = speech)
+```
+
+## Find Most Used Words
+```{r}
+tspeech %>%
+  unnest_tokens(word,text)%>%
+anti_join(stop_words, by="word") %>%
+count(word, sort=TRUE) %>%
+filter(n > 150) %>%
+mutate(word = reorder(word, n)) %>%
+top_n(10)%>%
+ggplot(aes(x=word, y=n, fill=rgb(0,1,0))) +
+geom_col(show.legend = FALSE) +
+coord_flip()
+```
+
+
+## Most used Bigrams
+
+```{r}
+tspeech <- tibble(line=1:length(speech),text = speech)
+
+speech_bigrams <- unnest_tokens(tspeech, bigram, text,token = "ngrams", n=2)
+speech_bigrams
+
+speech_bigrams <- speech_bigrams %>%
+  separate(bigram, c("word1","word2"), sep=" ")
+
+speech_stop <- tibble(word = c("applause"))
+
+
+
+speech_bigrams <- speech_bigrams %>%
+  filter(!word1 %in% stop_words$word)%>%
+  filter(!word2 %in% stop_words$word) %>%
+  filter(!word1 %in% speech_stop$word)%>%
+  filter(!word2 %in% speech_stop$word) 
+
+speech_negation <- tibble(word = c("never",
+                                   "no",
+                                   "without",
+                                   "not"))
+
+speech_bigrams <- speech_bigrams %>%
+  filter(!word1 %in% speech_negation$word)
+
+speech_bigrams %>% 
+  count(word1,word2,sort=TRUE) %>%
+  unite(bigram,c(word1,word2),sep=" ")%>%
+  top_n(15) %>%
+  mutate(word= reorder(bigram,n))%>%
+  ggplot(aes(x=word,y=n)) +
+  geom_col() +
+  ylab("Frequency") +
+  xlab("Words") +
+  ggtitle("Most used words") +
+  coord_flip()
+```
+
+
+## Bigram Connector graph
+```{r}
+library(igraph)
+library(ggraph)
+up_graph <- speech_bigrams %>%
+count(word1, word2, sort=TRUE) %>%
+filter(n > 20) %>%
+graph_from_data_frame()
+up_graph
+
+ggraph(up_graph,
+layout="igraph",
+algorithm="kk") +
+geom_edge_link() +
+geom_node_point() +
+geom_node_text(aes(label = name), vjust = 1, hjust = 1)
+
+```
+
+## Most used negative words
+
+```{r}
+speech_bigrams2 <- unnest_tokens(tspeech,
+                                 bigram, text,
+                                 token = "ngrams", n=2)
+speech_bigrams2
+
+speech_bigrams2 <- speech_bigrams2 %>%
+  separate(bigram, c("word1","word2"), sep=" ")
+
+speech_bigrams2 <- speech_bigrams2 %>%
+  filter(word1 %in% speech_negation$word)%>%
+  filter(!word2 %in% stop_words$word) %>%
+  filter(!word2 %in% speech_stop$word)
+
+speech_bigrams2 %>%
+  count(word1, word2, sort = TRUE) %>%
+  ungroup() %>%
+  arrange(desc(n)) %>%
+  mutate(word2 = reorder(word2, n)) %>%
+  group_by(word1) %>%
+  top_n(5)%>%
+  ggplot(aes(word2, n)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~word1, scales="free") +
+  ylab("Frequency") +
+  xlab("Words") +
+  ggtitle("Most used negative words") +
+  coord_flip()
+```
+
+## Sentiment Clustering and Analysis
+
+```{r}
+speech_bigrams3 <- unnest_tokens(tspeech,
+                                 bigram, 
+                                 text,
+                                 token = "ngrams", 
+                                 n=2)
+
+speech_bigrams3 <- speech_bigrams3 %>%
+  separate(bigram, c("word1","word2"), sep=" ")
+
+speech_bigrams3 <- speech_bigrams3 %>%
+  filter(!word1 %in% speech_negation$word)%>%
+  filter(!word2 %in% stop_words$word) %>%
+  filter(!word2 %in% speech_stop$word)
+
+loughlex <- get_sentiments("loughran")
+speech_bigrams3 %>%
+  inner_join(loughlex,
+             by= c("word2"="word"))%>%
+  count(sentiment,word2, sort=TRUE)%>%
+  mutate(word = reorder(word2,n))%>%
+  group_by(sentiment)%>%
+  top_n(5)%>%
+  ggplot(aes(x=word, y=n)) +
+  geom_col(show.legend=FALSE) +
+  facet_wrap(~sentiment, scales = "free") +
+  ylab("Frequency") +
+  xlab("Words") +
+  ggtitle("Sentiment Analysis") +
+  coord_flip()
+
+
+```
+
+# LDA topic modelling
+
+```{r}
+austen_chapters <- speech %>%
+unite(document, book, chapter) %>%
+anti_join(stop_words) %>%
+count(document, word, sort=TRUE) %>%
+ungroup()
+
+speech_dtm <- speech %>% cast_dtm(document, word, n)
+austen_dtm
+
+
+```
